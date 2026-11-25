@@ -1,0 +1,9 @@
+# Secrets
+.env
+config/config.php
+
+# macOS
+.DS_Store
+
+# Agents
+CLAUDE.md

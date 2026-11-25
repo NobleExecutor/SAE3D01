@@ -4,31 +4,42 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "80:80"
+      - "127.0.0.1:80:80"
     volumes:
-      - ./public:/var/www/html
+      - .:/var/www/html
+    environment:
+      TZ: Europe/Paris
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   db:
     image: mariadb:10.11
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: sae3d01_db
-      MYSQL_USER: user
-      MYSQL_PASSWORD: user
+      TZ: Europe/Paris
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:?DB_ROOT_PASS manquant dans le fichier .env}
+      MYSQL_DATABASE: ${DB_NAME:?DB_NAME manquant dans le fichier .env}
+      MYSQL_USER: ${DB_USER:?DB_USER manquant dans le fichier .env}
+      MYSQL_PASSWORD: ${DB_PASS:?DB_PASS manquant dans le fichier .env}
     volumes:
       - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     environment:
       PMA_HOST: db
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
 volumes:
   db_data:

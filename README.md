@@ -20,9 +20,9 @@ Le fichier `docker-compose.yml` orchestre trois services interconnectés :
 
 | Service | Image / Build | Rôle | Port hôte : Port conteneur |
 | :--- | :--- | :--- | :--- |
-| **`web`** | Construit depuis `Dockerfile` (PHP 8.3 Apache + Xdebug) | Serveur HTTP Apache servant le dossier `public/` | `80:80` |
+| **`web`** | Construit depuis `Dockerfile` (PHP 8.3 Apache + Xdebug) | Serveur HTTP Apache servant le dossier `public/` | `127.0.0.1:80:80` |
 | **`db`** | `mariadb:10.11` | Serveur de base de données relationnelle | `3306` *(interne au réseau Docker)* |
-| **`phpmyadmin`** | `phpmyadmin/phpmyadmin` | Interface web pour gérer la base de données MariaDB | `8080:80` |
+| **`phpmyadmin`** | `phpmyadmin/phpmyadmin` | Interface web pour gérer la base de données MariaDB | `127.0.0.1:8080:80` |
 
 ---
 
@@ -35,7 +35,19 @@ git clone https://github.com/NobleExecutor/SAE3D01
 cd SAE3D01
 ```
 
-### 2. Démarrer les conteneurs
+### 2. Créer les fichiers de configuration
+```bash
+cp config/config.example.php config/config.php
+```
+```bash
+cp .env.example .env
+```
+- `config/config.php` : configuration de l'application (base de données et API). Avec Docker, `DB_HOST` vaut `db`.
+- `.env` : **réservé à Docker**, il sert à créer la base MariaDB. Renseignez `DB_NAME`, `DB_USER`, `DB_PASS` et `DB_ROOT_PASS`. Les trois premières valeurs doivent être identiques dans `config.php`.
+
+Ces deux fichiers sont ignorés par Git.
+
+### 3. Démarrer les conteneurs
 Depuis la racine du projet, exécutez la commande suivante :
 
 ```bash
@@ -48,7 +60,7 @@ Cette commande va :
 2. Télécharger les images MariaDB 10.11 et phpMyAdmin.
 3. Démarrer l'ensemble des conteneurs en tâche de fond (`-d`).
 
-### 3. Vérifier que les conteneurs tournent
+### 4. Vérifier que les conteneurs tournent
 Pour vérifier l'état des conteneurs :
 ```bash
 docker compose ps
@@ -63,7 +75,8 @@ Une fois les conteneurs démarrés, vous pouvez accéder aux services depuis vot
 
 ### 1. Application Web
 - **URL :** [http://localhost](http://localhost) (ou [http://localhost:80](http://localhost:80))
-- **Dossier servi :** Le dossier local `./public/` est directement monté dans `/var/www/html`. Toute modification apportée aux fichiers dans `public/` est prise en compte instantanément sans avoir besoin de redémarrer le conteneur.
+- **Dossier servi :** Tout le projet est monté dans `/var/www/html`, mais Apache ne sert que `/var/www/html/public`. PHP peut donc charger `app/` et `config/`, qui restent inaccessibles depuis le navigateur. Les modifications sont prises en compte sans redémarrer le conteneur.
+- Les ports ne sont ouverts que sur votre machine (`127.0.0.1`) : le site n'est pas accessible depuis le réseau local.
 
 ### 2. phpMyAdmin
 - **URL :** [http://localhost:8080](http://localhost:8080)
@@ -71,40 +84,45 @@ Une fois les conteneurs démarrés, vous pouvez accéder aux services depuis vot
 
 ---
 
-## 🔑 Identifiants de la base de données
+## 🔑 Connexion à la base de données
 
-Depuis votre code PHP (ou via phpMyAdmin), utilisez les paramètres de connexion suivants :
+L'application lit ses identifiants dans `config/config.php`, qui les déclare sous forme de constantes avec `define()`.
 
-| Paramètre | Valeur | Remarque |
+| Constante | Avec Docker | Avec Laragon (valeurs par défaut) |
 | :--- | :--- | :--- |
-| **Hôte (Host)** | `db` | Nom du service défini dans `docker-compose.yml` |
-| **Port** | `3306` | Port standard MariaDB / MySQL |
-| **Base de données** | `sae3d01_db` | Nom de la base créée automatiquement |
-| **Utilisateur standard** | `user` | Droits complets sur `sae3d01_db` |
-| **Mot de passe** | `user` | Mot de passe de l'utilisateur standard |
-| **Utilisateur root** | `root` | Administrateur du serveur MariaDB |
-| **Mot de passe root** | `root` | Mot de passe super-administrateur |
+| `DB_HOST` | `db` | `127.0.0.1` |
+| `DB_PORT` | `3306` | `3306` |
+| `DB_NAME` | valeur de `DB_NAME` dans `.env` | nom de la base que vous créez |
+| `DB_USER` | valeur de `DB_USER` dans `.env` | `root` |
+| `DB_PASS` | valeur de `DB_PASS` dans `.env` | vide |
+
+> ℹ️ Avec Docker, MariaDB n'applique les identifiants du `.env` qu'à la création de la base. Pour les modifier ensuite, changez-les dans phpMyAdmin ou réinitialisez la base (`docker compose down -v`, **les données sont perdues**).
 
 ### Exemple de connexion PDO en PHP :
 ```php
 <?php
-$host     = 'db';
-$dbname   = 'sae3d01_db';
-$user     = 'user';
-$password = 'user';
-$charset  = 'utf8mb4';
+require_once __DIR__ . '/../config/config.php'; // depuis public/index.php
 
-$dsn = "mysql:host=$host;dbname=$dbname;charset=$charset";
+$dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', DB_HOST, DB_PORT, DB_NAME);
 
-try {
-    $pdo = new PDO($dsn, $user, $password, [
-        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
-} catch (\PDOException $e) {
-    throw new \PDOException($e->getMessage(), (int)$e->getCode());
-}
+$pdo = new PDO($dsn, DB_USER, DB_PASS, [
+    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+]);
 ```
+
+---
+
+## 🪟 Installation avec Laragon (sans Docker)
+
+Les sections Docker de ce guide ne vous concernent pas. Il faut PHP 8.3 avec les extensions `pdo_mysql` et `curl`.
+
+1. Clonez le dépôt.
+2. Faites pointer la racine web de Laragon sur le dossier `public/` du projet (**Menu > Preferences > General > Document Root**), puis redémarrez Apache.
+3. Créez la base de données (par exemple `sae3d01_db`) avec phpMyAdmin ou HeidiSQL.
+4. Copiez `config/config.example.php` en `config/config.php`, puis renseignez-le avec les valeurs Laragon du tableau ci-dessus.
+
+Le fichier `.env` n'est pas nécessaire.
 
 ---
 
@@ -172,13 +190,14 @@ Pour écouter les sessions de débogage dans votre éditeur (VS Code, PhpStorm),
 ├── Dockerfile              # Configuration de l'image Apache + PHP 8.3 + Xdebug
 ├── docker-compose.yml      # Définition des services Docker (web, db, phpmyadmin)
 ├── README.md               # Ce guide d'installation et d'utilisation
+├── .env.example            # Modèle du .env, réservé à Docker
 ├── app/                    # Architecture applicative (MVC)
 │   ├── controller/         # Contrôleurs PHP
 │   ├── model/              # Modèles et accès aux données
 │   └── view/               # Vues et templates PHP
-├── config/                 # Fichiers de configuration (base de données, constantes...)
+├── config/                 # Configuration : config.example.php (modèle) et config.php (local, ignoré)
 ├── data/                   # Fichiers de données sources (ex: ruche-data.js)
-└── public/                 # Racine publique web servie par Apache (/var/www/html)
+└── public/                 # Racine publique web servie par Apache (/var/www/html/public)
     ├── index.php           # Point d'entrée de l'application
     ├── css/                # Feuilles de styles
     └── js/                 # Scripts JavaScript client
@@ -191,7 +210,7 @@ Pour écouter les sessions de débogage dans votre éditeur (VS Code, PhpStorm),
 ### Conflit de port (ex: `bind: address already in use` sur le port 80 ou 8080)
 Si un autre serveur local (Apache natif, Nginx, Skype, etc.) utilise déjà le port `80` ou `8080` :
 1. Arrêtez le service en conflit sur votre machine hôte, ou
-2. Modifiez le port hôte dans `docker-compose.yml` (par exemple `"8081:80"` au lieu de `"80:80"`).
+2. Modifiez le port hôte dans `docker-compose.yml` (par exemple `"127.0.0.1:8081:80"` au lieu de `"127.0.0.1:80:80"`).
 
 ### MariaDB met du temps à démarrer
-Au premier lancement, MariaDB initialise les fichiers de base de données. Il se peut que la connexion échoue pendant quelques secondes. Attendez 10 à 15 secondes puis rechargez phpMyAdmin ou votre application.
+Au premier lancement, MariaDB initialise les fichiers de base de données. Les conteneurs `web` et `phpmyadmin` attendent que la base soit prête (`healthcheck`) avant de démarrer.

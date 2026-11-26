@@ -7,3 +7,5 @@ config/config.php
 
 # Agents
 CLAUDE.md
+
+.vscode/
